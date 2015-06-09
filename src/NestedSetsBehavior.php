@@ -10,6 +10,7 @@ namespace creocoder\nestedsets;
 use yii\base\Behavior;
 use yii\base\NotSupportedException;
 use yii\db\ActiveRecord;
+use yii\db\AfterSaveEvent;
 use yii\db\Exception;
 use yii\db\Expression;
 
@@ -33,6 +34,10 @@ class NestedSetsBehavior extends Behavior
      * @var string|false
      */
     public $treeAttribute = false;
+    /**
+     * @var boolean
+     */
+    public $treeAttributeById = true;
     /**
      * @var string
      */
@@ -362,6 +367,9 @@ class NestedSetsBehavior extends Behavior
         if ($this->treeAttribute === false && $this->owner->find()->roots()->exists()) {
             throw new Exception('Can not create more than one root when "treeAttribute" is false.');
         }
+        if ($this->treeAttribute !== false && !$this->treeAttributeById && $this->owner->getAttribute($this->treeAttribute) === null) {
+            throw new Exception("Tree attribute '{$this->treeAttribute}' must be set for root record.");
+        }
 
         $this->owner->setAttribute($this->leftAttribute, 1);
         $this->owner->setAttribute($this->rightAttribute, 2);
@@ -399,7 +407,7 @@ class NestedSetsBehavior extends Behavior
      */
     public function afterInsert()
     {
-        if ($this->operation === self::OPERATION_MAKE_ROOT && $this->treeAttribute !== false) {
+        if ($this->operation === self::OPERATION_MAKE_ROOT && $this->treeAttribute !== false && $this->treeAttributeById) {
             $this->owner->setAttribute($this->treeAttribute, $this->owner->getPrimaryKey());
             $primaryKey = $this->owner->primaryKey();
 
@@ -436,6 +444,18 @@ class NestedSetsBehavior extends Behavior
                     throw new Exception('Can not move the root node as the root.');
                 }
 
+                if (!$this->treeAttributeById) {
+                    if ($this->owner->getOldAttribute($this->treeAttribute) === $this->owner->getAttribute($this->treeAttribute)) {
+                        throw new Exception('Can not move a node as the root when its tree attribute "'. $this->treeAttribute . '" is not changed.');
+                    }
+                    if ($this->owner->find()->andWhere([
+                        $this->treeAttribute => $this->owner->getAttribute($this->treeAttribute),
+                        $this->leftAttribute => 1,
+                    ])->one()) {
+                        throw new Exception('Can not move a node as the root when another root with this "'. $this->treeAttribute . '" already exists.');
+                    }
+                }
+
                 break;
             case self::OPERATION_INSERT_BEFORE:
             case self::OPERATION_INSERT_AFTER:
@@ -459,13 +479,14 @@ class NestedSetsBehavior extends Behavior
     }
 
     /**
+     * @param AfterSaveEvent $event
      * @return void
      */
-    public function afterUpdate()
+    public function afterUpdate($event)
     {
         switch ($this->operation) {
             case self::OPERATION_MAKE_ROOT:
-                $this->moveNodeAsRoot();
+                $this->moveNodeAsRoot($event);
                 break;
             case self::OPERATION_PREPEND_TO:
                 $this->moveNode($this->node->getAttribute($this->leftAttribute) + 1, 1);
@@ -488,15 +509,16 @@ class NestedSetsBehavior extends Behavior
     }
 
     /**
+     * @param AfterSaveEvent $event
      * @return void
      */
-    protected function moveNodeAsRoot()
+    protected function moveNodeAsRoot($event)
     {
         $db = $this->owner->getDb();
         $leftValue = $this->owner->getAttribute($this->leftAttribute);
         $rightValue = $this->owner->getAttribute($this->rightAttribute);
         $depthValue = $this->owner->getAttribute($this->depthAttribute);
-        $treeValue = $this->owner->getAttribute($this->treeAttribute);
+        $treeValue = $this->treeAttributeById ? $this->owner->getAttribute($this->treeAttribute) : $event->changedAttributes[$this->treeAttribute];
         $leftAttribute = $db->quoteColumnName($this->leftAttribute);
         $rightAttribute = $db->quoteColumnName($this->rightAttribute);
         $depthAttribute = $db->quoteColumnName($this->depthAttribute);
@@ -506,7 +528,7 @@ class NestedSetsBehavior extends Behavior
                 $this->leftAttribute => new Expression($leftAttribute . sprintf('%+d', 1 - $leftValue)),
                 $this->rightAttribute => new Expression($rightAttribute . sprintf('%+d', 1 - $leftValue)),
                 $this->depthAttribute => new Expression($depthAttribute  . sprintf('%+d', -$depthValue)),
-                $this->treeAttribute => $this->owner->getPrimaryKey(),
+                $this->treeAttribute => $this->treeAttributeById ? $this->owner->getPrimaryKey() : $this->owner->getAttribute($this->treeAttribute),
             ],
             [
                 'and',
