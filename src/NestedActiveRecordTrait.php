@@ -27,22 +27,30 @@ trait NestedActiveRecordTrait {
     /**
      * Загружает полное дерево и возвращает его корень
      *
-     * @param mixed $treeId ID дерева
+     * @param mixed|ActiveRecord $treeId ID дерева
      * @param array $with
      * @return null|ActiveRecord[] Корень дерева
      */
     public static function loadTree($treeId, $with = []) {
+        if ($treeId instanceof ActiveRecord) {
+            $treeObject = $treeId;
+            $treeId = $treeObject->getPrimaryKey();
+        }
         if (!array_key_exists($treeId, static::$_trees)) {
             $model = new static;
             $all = static::find()->with($with)->where([$model->treeAttribute => $treeId])->orderBy($model->leftAttribute)->all();
             if (empty($all)) {
                 static::$_trees[$treeId] = [];
             } else {
+                /** @var ActiveRecord $root */
                 $root = $all[0];
                 $root->_nested['parents'] = [];
                 $root->_nested['parent'] = null;
                 $root->_nested['prev'] = null;
                 $root->_nested['next'] = null;
+                if (isset($treeObject) && isset($root->treeRelation)) {
+                    $root->populateRelation($root->treeRelation, $treeObject);
+                }
                 static::_buildTreeLevel(array_slice($all, 1), $root, $model->leftAttribute, $model->rightAttribute, true);
                 static::$_trees[$treeId] = $all;
             }
