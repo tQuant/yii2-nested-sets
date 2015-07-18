@@ -7,6 +7,7 @@
 
 namespace creocoder\nestedsets;
 
+use yii\base\InvalidParamException;
 use yii\db\ActiveRecord;
 
 /**
@@ -197,5 +198,46 @@ trait NestedActiveRecordTrait {
         }
 
         return $this->_nested['next'];
+    }
+
+    /**
+     * @param $name
+     * @param $models
+     */
+    public function populateNestedRelation($name, $models) {
+        switch ($name) {
+            case 'parent':
+                if ($models === null) {
+                    $this->_nested['parents'] = [];
+                } else {
+                    $this->_nested['parents'] = array_merge($models->parents, [$models]);
+                }
+
+                $this->_nested[$name] = $models;
+                break;
+
+            case 'parents':
+                if ($models === null || empty($models)) {
+                    $this->_nested['parents'] = [];
+                    $this->_nested['parent'] = null;
+                } else {
+                    if (!is_array($models)) {
+                        $models = [$models];
+                    }
+                    $this->_nested['parents'] = $models;
+                    $this->_nested['parent'] = $models[count($models) - 1];
+                }
+                break;
+
+            case 'prev':
+            case 'next':
+            case 'children':
+                $this->_nested[$name] = $models;
+                break;
+
+            default:
+                throw new InvalidParamException('Invalid nested relation name: "' . $name . '"');
+                break;
+        }
     }
 }
