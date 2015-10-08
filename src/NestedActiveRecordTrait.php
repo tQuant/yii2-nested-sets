@@ -26,11 +26,20 @@ trait NestedActiveRecordTrait {
     protected $_nested = [];
 
     /**
-     * Загружает полное дерево и возвращает его корень
+     * @return array Название дополнительных полей
+     * @see ArrayableTrait::toArray()
+     */
+    public function extraFields() {
+        $fields = ['parents', 'parent', 'prev', 'next', 'children'];
+        return array_merge(array_combine($fields, $fields), parent::extraFields());
+    }
+
+    /**
+     * Загружает полное дерево и устанавливает связи между его элементами
      *
      * @param mixed|ActiveRecord $treeId ID дерева
      * @param array $with
-     * @return null|ActiveRecord[] Корень дерева
+     * @return null|ActiveRecord[] Список всех элементов. Первый элемент - корень дерева
      */
     public static function loadTree($treeId, $with = []) {
         if ($treeId instanceof ActiveRecord) {
