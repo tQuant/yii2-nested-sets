@@ -8,7 +8,9 @@
 namespace creocoder\nestedsets;
 
 use yii\base\InvalidParamException;
+use yii\base\UserException;
 use yii\db\ActiveRecord;
+use yii\db\Transaction;
 
 /**
  * This is the trait class for nested sets
@@ -247,6 +249,53 @@ trait NestedActiveRecordTrait {
             default:
                 throw new InvalidParamException('Invalid nested relation name: "' . $name . '"');
                 break;
+        }
+    }
+
+    /**
+     * Удаляет запись и все дочерние записи по одной
+     */
+    public function deleteRecursively() {
+        if (!$this->isTransactional(self::OP_DELETE)) {
+            return $this->deleteRecursivelyInternal();
+        }
+
+        /** @var Transaction $transaction */
+        $transaction = static::getDb()->beginTransaction();
+        try {
+            $result = $this->deleteRecursivelyInternal();
+            if ($result === false) {
+                $transaction->rollBack();
+            } else {
+                $transaction->commit();
+            }
+            return $result;
+        } catch (UserException $e) {
+            $transaction->rollBack();
+            return false;
+        } catch (\Exception $e) {
+            $transaction->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
+     * Удаляет запись и все дочерние записи по одной
+     */
+    protected function deleteRecursivelyInternal() {
+        // Удаление записи может вернуть false, если не пройдет beforeDelete. В этом случае надо откатить уже удаленные
+        // записи, но не бросать исключение пользователю. Поэтому бросается UserException, который перехватывается,
+        // откатывает транзакцию и возвращает false
+        $children = $this->getChildren();
+        foreach ($children as $child) {
+            if (!$child->deleteRecursivelyInternal()) {
+                throw new UserException();
+            }
+        }
+        if (!($this->isRoot() ? $this->deleteWithChildren() : $this->deleteInternal())) {
+            throw new UserException();
+        } else {
+            return true;
         }
     }
 }
