@@ -72,6 +72,38 @@ trait NestedActiveRecordTrait {
     }
 
     /**
+     * Загружает ветку дерева и устанавливает связи между ее элементами
+     *
+     * @param mixed|ActiveRecord $rootId ID элемента дерева от которого начинать построение ветки
+     * @param array $with
+     * @return null|ActiveRecord[] Список всех элементов. Первый элемент - корень дерева
+     */
+    public static function loadBranch($rootId, $with = []) {
+        if ($rootId instanceof ActiveRecord) {
+            $root = $rootId;
+        } else {
+            $root = static::findOne($rootId);
+        }
+        if ($root === null) {
+            return [];
+        }
+        $allChildren = $root->children()->all();
+        if (empty($allChildren)) {
+            return [$root];
+        } else {
+            $root->getParents();
+            $root->_nested['prev'] = null;
+            $root->_nested['next'] = null;
+            static::_buildTreeLevel($allChildren, $root, $root->leftAttribute, $root->rightAttribute, true);
+            $all = array_merge([$root], $allChildren);
+            if (!empty($with)) {
+                static::find()->findWith($with, $all);
+            }
+            return $all;
+        }
+    }
+
+    /**
      * Строит связи между элементами дерева
      *
      * @param ActiveRecord[] $list
